@@ -45,17 +45,6 @@
                   "content": {
                     "mod": "personal-spaces"
                   }
-                },
-                {
-                  "id": "agents",
-                  "type": "block",
-                  "size": {
-                    "weight": 1
-                  },
-                  "min": 90,
-                  "content": {
-                    "mod": "personal-agents"
-                  }
                 }
               ]
             },

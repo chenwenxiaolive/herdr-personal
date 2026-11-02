@@ -46,7 +46,7 @@ export default class WorkspaceChrome extends View {
     return h_flex().id("brand").size_full().bg(t.chrome).pr(10).gap(2).items_center().justify_end()
       .child(div().id("sidebar-mode").size(26).flex_none().flex().items_center().justify_center().rounded(6)
         .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
-        .role("button").accessibility_label(focus ? "Show spaces and agents" : "Show focus list")
+        .role("button").accessibility_label(focus ? "Show spaces" : "Show focus list")
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click(switchSidebar)
         .child(svg(`mods/workspace-chrome/${focus ? "layers" : "circle-check"}.svg`).size(14)))

@@ -1,11 +1,47 @@
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
 // grouped by machine when more than one is known. After a space's name, the repo
-// its first terminal is in now, only where unusual: branch, ahead/behind. Agent state lives in the agents list, not here. Click to
+// its first terminal is in now, only where unusual: branch, ahead/behind. Each row's right edge shows its agents' states. Click to
 // switch, right-click for its menu, drag to reorder.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window } from "herdr";
+import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window } from "herdr";
+
+const STATES = ["blocked", "working", "done", "idle"];
+const STATE_LABEL = { blocked: "Needs you", working: "Working", done: "Done", idle: "Idle" };
+const URGENCY = { blocked: 4, done: 3, working: 2, idle: 1 };
+
+// Count displayed agents, carrying a live child's urgency into its parent's mark.
+// Build one snapshot per render; remote addresses remain machine-qualified.
+function agentCounts() {
+  const list = agents(), bySpace = new Map(), children = new Map();
+  const shown = new Map(list.map(a => [a.address, a.status]));
+  for (const term of terminals()) {
+    if (!term.parent || term.state !== "live") continue;
+    const siblings = children.get(term.parent) ?? [];
+    siblings.push(term);
+    children.set(term.parent, siblings);
+  }
+  const normal = state => state === "error" ? "blocked" : STATES.includes(state) ? state : "idle";
+  const stateOf = (address, state, seen = new Set()) => {
+    let result = normal(state);
+    if (seen.has(address)) return result;
+    seen.add(address);
+    for (const child of children.get(address) ?? []) {
+      const raw = shown.get(child.address) ?? child.status;
+      const next = stateOf(child.address, raw === "done" ? "idle" : raw, seen);
+      if (URGENCY[next] > URGENCY[result]) result = next;
+    }
+    return result;
+  };
+  for (const agent of list) {
+    const counts = bySpace.get(agent.space) ?? {};
+    const state = stateOf(agent.address, agent.status);
+    counts[state] = (counts[state] ?? 0) + 1;
+    bySpace.set(agent.space, counts);
+  }
+  return bySpace;
+}
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 // `ps`: panes(), read once by the caller (each read copies every pane).
@@ -283,6 +319,7 @@ export default class Spaces extends View {
     const where = [repo, branch].filter(Boolean).join(" \u00b7 ");
     return h_flex()
       .flex_1()
+      .flex_shrink(1000)
       .min_w(0)
       .gap(4)
       .justify_end()
@@ -292,6 +329,25 @@ export default class Spaces extends View {
       .when(Boolean(where), (el) => el.child(div().min_w(0).truncate().child(where)))
       .when(g.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`\u2191${g.ahead}`)))
       .when(g.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`\u2193${g.behind}`)));
+  }
+
+  agentStatus(w, t) {
+    const counts = this.counts?.get(w.id) ?? {};
+    const states = STATES.filter(state => counts[state]);
+    if (!states.length) return null;
+    const mark = state => state === "working"
+      ? svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)
+      : state === "blocked"
+        ? div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold()
+          .text_color(t.blocked).flex().items_center().justify_center().child("!")
+        : div().size(7).mx(3.5).flex_none().rounded_full()
+          .when(state === "done", el => el.bg(t.done))
+          .when(state === "idle", el => el.border(1.5).border_color(t.idle ?? t.dim));
+    return h_flex().id(`space-agents-${w.id}`).flex_none().gap(6).items_center()
+      .role("status").accessibility_label(states.map(s => `${STATE_LABEL[s]}: ${counts[s]}`).join(", "))
+      .children(states.map(state => h_flex().id(`space-agent-${w.id}-${state}`).flex_none().gap(3).items_center()
+        .child(mark(state))
+        .child(div().text_size(11).text_color(state === "idle" ? t.dim : t[state]).child(String(counts[state])))));
   }
 
   row({ w, i, g, tree, kids = 0 }, t) {
@@ -369,7 +425,8 @@ export default class Spaces extends View {
           .when(folded, el => el.child(div().id(`space-count-${w.id}`).h(20).min_w(20).px(4).flex_none().flex().items_center().justify_center().rounded(4)
             .text_size(11).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
             .role("button").accessibility_label("Expand worktrees")
-            .on_mouse_down("left", stop).on_click(toggle).child(String(kids)))),
+            .on_mouse_down("left", stop).on_click(toggle).child(String(kids))))
+          .when(this.counts?.has(w.id), el => el.child(this.agentStatus(w, t))),
       );
   }
 
@@ -377,6 +434,7 @@ export default class Spaces extends View {
     const t = theme();
     const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
     const sp = spaces();
+    this.counts = agentCounts();
     const ids = new Set(sp.map(p => p.id));
     const kept = Object.fromEntries(Object.entries(shared("space.colors") ?? {}).filter(([id]) => ids.has(id)));
     let changed = Object.keys(kept).length !== Object.keys(shared("space.colors") ?? {}).length;

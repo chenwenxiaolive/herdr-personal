@@ -9,7 +9,10 @@ function element(kind = "div", source) {
     if (key in target) return target[key];
     return (...args) => {
       if (key === "when") { if (args[0]) args[1](proxy); }
-      else if (key === "child") node.items.push(args[0]);
+      else if (key === "child") {
+        assert.ok(args[0] != null, "GPUI child() rejects null and undefined");
+        node.items.push(args[0]);
+      }
       else if (key === "children") node.items.push(...args[0]);
       else if (key === "on_mouse_down" || key === "on_mouse_up") node.handlers[`${key}:${args[0]}`] = args[1];
       else if (key.startsWith("on_")) node.handlers[key] = args[0];
@@ -717,6 +720,29 @@ for (const width of [180, 200, 240, 268, 480]) {
     assert.ok(fs.existsSync(path.join(path.dirname(modRoot), s)), `icon on disk: ${s}`);
   }
 }
+{
+  const f = fixture(268), sp = f.load("personal-spaces");
+  let tree = sp.render(cx);
+  assert.equal(find(tree, "space-agents-s0").style.accessibility_label, "Needs you: 1", "a blocked live child raises its working parent's state");
+  assert.equal(find(tree, "space-agents-s2").style.accessibility_label, "Needs you: 1", "remote space statuses remain separate");
+  assert.equal(find(tree, "space-agents-s1"), null, "a project with no agents has no badge");
+  for (const term of f.terminals()) if (term.parent) term.status = "idle";
+  for (const [i, status] of ["blocked", "done", "idle", "working"].entries()) {
+    f.agents().push({ ...f.agents()[0], address: `extra-${i}`, status, focused: false });
+  }
+  tree = sp.render(cx);
+  assert.equal(find(tree, "space-agents-s0").style.accessibility_label, "Needs you: 1, Working: 2, Done: 1, Idle: 1", "a project shows every state count, not just its highest priority");
+  assert.deepEqual(strings(find(tree, "space-agent-s0-working")), ["2"]);
+  assert.equal(find(tree, "space-agents-s2").style.accessibility_label, "Needs you: 1");
+  f.terminals().find(term => term.address === "child").status = "error";
+  f.terminals().find(term => term.address === "child").state = "exited";
+  assert.equal(find(sp.render(cx), "space-agent-s0-working").items.at(-1).items[0], "2", "an ended child's error does not change its parent's state");
+  const layout = JSON.parse(fs.readFileSync(path.join(path.dirname(modRoot), "layouts/herdr-personal.json"), "utf8"));
+  const nodes = n => [n, ...(n.children ?? []).flatMap(nodes)];
+  assert.ok(nodes(layout).some(n => n.content?.mod === "personal-spaces"));
+  assert.ok(!nodes(layout).some(n => n.content?.mod === "personal-agents"), "the standalone Agents panel is absent from the personal layout");
+}
+
 (async () => {
   {
     const f = fixture(268);
