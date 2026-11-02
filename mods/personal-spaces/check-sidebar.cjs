@@ -710,6 +710,52 @@ for (const width of [180, 200, 240, 268, 480]) {
   assert.ok("flex_none" in actions.style, "narrow panes keep the action targets at their full size");
 }
 {
+  const f = fixture(268);
+  f.slots.panel = { id: "panel", hidden: true };
+  f.slots.panelBody = { id: "panel-body", active: "files", children: [{ id: "files" }, { id: "changes" }] };
+  f.slots.view = { id: "view", active: "agent" };
+  const tabs = f.load("personal-tabs");
+  const apply = () => {
+    for (const [name, args] of f.calls.splice(0)) {
+      if (name === "layout.select") {
+        assert.equal(args.stack, "panel-body", "panel controls leave the agent/tab view unchanged");
+        f.slots.panelBody.active = args.child;
+      } else if (name === "layout.show" || name === "layout.hide") {
+        assert.equal(args.id, "panel");
+        f.slots.panel.hidden = name === "layout.hide";
+      } else assert.fail(`Unexpected panel action: ${name}`);
+    }
+  };
+  const click = id => { fire(find(tabs.render(cx), `panel-${id}`), "on_click", {}, cx); apply(); tabs.render(cx); };
+  click("files");
+  assert.equal(f.slots.panel.hidden, false, "Files opens the side panel in agent view");
+  assert.equal(f.slots.panelBody.active, "files");
+  click("changes");
+  assert.equal(f.slots.panelBody.active, "changes", "Changes switches the open panel");
+  const selectSpace = index => {
+    f.spaces().forEach((space, i) => { space.active = i === index; });
+    tabs.render(cx); apply(); tabs.render(cx);
+  };
+  selectSpace(1);
+  assert.equal(f.slots.panel.hidden, true, "an unconfigured space starts with its panel closed");
+  click("files");
+  selectSpace(0);
+  assert.equal(f.slots.panelBody.active, "changes", "returning restores this space's panel");
+  click("changes");
+  assert.equal(f.slots.panel.hidden, true, "clicking the selected panel closes it");
+  selectSpace(1);
+  assert.equal(f.slots.panelBody.active, "files");
+  const restored = f.load("personal-tabs");
+  restored.render(cx); apply();
+  assert.equal(f.slots.panel.hidden, false, "panel choice survives a mod reload");
+  assert.equal(JSON.parse(f.stores.get("personal-tabs").get("panels")).s0, null);
+  for (const id of ["files", "changes"]) {
+    const button = find(restored.render(cx), `panel-${id}`);
+    const icon = walk(button).find(node => node.kind === "svg");
+    assert.ok(fs.existsSync(path.join(path.dirname(modRoot), icon.source)), `panel icon exists: ${id}`);
+  }
+}
+{
   // Icons: every UI glyph drawn is a file that exists.
   const f = fixture(268);
   f.spaces()[0].tabs[0].status = "blocked";

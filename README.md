@@ -6,6 +6,8 @@
 
 每个 Space 基础行高 50px；repo/worktree 名称在上，Git 分支及领先/落后提交数在下。无 Git 信息的项目仅显示名称，Agent 状态固定在右侧。
 
+右上角 Files 打开文件树和只读预览，Changes 打开 Git 变更与 diff。点击当前已打开的按钮可收起面板；每个 Space 分别记住面板选择，单 Agent 视图同样可用。这两个面板直接使用 Herdr 自带的 `files` / `changes`。
+
 默认 JetBrains Mono / Geist，终端基础字号 14、界面缩放 1.1（当前显示字号 15.4）。原始基线保存在 Git 标签 `baseline-t3-bf05b35`。
 
 ## 文件
