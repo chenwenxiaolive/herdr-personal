@@ -75,6 +75,16 @@ function select(s) {
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
+const FETCH_INTERVAL = 5 * 60 * 1000;
+// Keep authentication non-interactive while retaining configured SSH identities/options.
+// Fetch updates remote refs; leave FETCH_HEAD, tags, submodules and maintenance alone.
+const FETCH_SCRIPT = [
+  "export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never GIT_ASKPASS=false SSH_ASKPASS=false",
+  'ssh_command=$GIT_SSH_COMMAND',
+  'if [ -z "$ssh_command" ]; then ssh_command=$(git config --get core.sshCommand) || ssh_command=ssh; fi',
+  'export GIT_SSH_COMMAND="$ssh_command -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"',
+  "exec git --no-optional-locks -c credential.interactive=false -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --all --quiet --jobs=1 --no-recurse-submodules --no-write-fetch-head --no-auto-gc --no-prune --no-tags </dev/null",
+].join("\n");
 
 // What a stored color name looks like on an avatar (the same in every mod
 // that draws space avatars): one strong color per hue, light and dark alike.
@@ -90,6 +100,11 @@ export default class Spaces extends View {
     this.ready = {}; // machine -> its layout was readable at the last look
     this.at = {}; // space -> its where() at the last look
     this.watching = new Set(); // local repos' git folders
+    this.autoFetch = _props?.autoFetch !== false;
+    this.fetchInterval = Math.max(60, Number(_props?.fetchIntervalSeconds) || FETCH_INTERVAL / 1000) * 1000;
+    this.fetchState = JSON.parse(localStorage.getItem("git.fetch") ?? "{}");
+    this.fetching = new Set();
+    this.fetchRequested = new Set();
     // Spaces made while this runs wait (at most a moment) for their git, so a
     // worktree appears under its repo instead of jumping there.
     this.shown = new Set(spaces().map((s) => s.id));
@@ -104,6 +119,57 @@ export default class Spaces extends View {
     // `git status` walks the whole tree, on another machine a process there:
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
+    cx.timer.every(15000, (cx) => this.fetchDue(cx));
+  }
+
+  close() { this.closed = true; }
+
+  // Use the common Git directory plus machine, so linked worktrees fetch only once.
+  fetchRepos() {
+    const result = new Map(), ps = panes();
+    const connected = new Set(machines().filter(m => m.layout === "ready").map(m => m.name));
+    for (const s of spaces()) {
+      if (s.machine && !connected.has(s.machine)) continue;
+      const key = where(s, ps), g = this.git[key];
+      if (g && !result.has(g.repo)) result.set(g.repo, key);
+    }
+    return result;
+  }
+
+  fetchDue(cx, force = false) {
+    if (this.closed || (!this.autoFetch && !force && !this.fetchRequested.size)) return;
+    const repos = this.fetchRepos(), now = Date.now();
+    let started = false;
+    if (force) for (const repo of repos.keys()) if (!this.fetching.has(repo)) this.fetchRequested.add(repo);
+    for (const [repo, key] of repos) {
+      if (this.fetching.size >= 2) break;
+      if (this.fetching.has(repo)) continue;
+      if (!this.autoFetch && !this.fetchRequested.has(repo)) continue;
+      const previous = this.fetchState[repo] ?? {};
+      if (!this.fetchRequested.has(repo) && now - (previous.attemptedAt ?? 0) < this.fetchInterval) continue;
+      this.fetchRequested.delete(repo);
+      this.fetching.add(repo);
+      started = true;
+      this.fetchState[repo] = { ...previous, attemptedAt: now };
+      // Persist at start too: reloads don't start another fetch immediately.
+      localStorage.setItem("git.fetch", JSON.stringify(this.fetchState));
+      cx.spawn(async cx => {
+        const [on, cwd] = JSON.parse(key);
+        let ok = false;
+        try { ok = (await exec("sh", ["-c", FETCH_SCRIPT], { cwd, on })).code === 0; } catch {}
+        this.fetching.delete(repo);
+        if (this.closed) return;
+        this.fetchState[repo] = { attemptedAt: now, finishedAt: Date.now(),
+          successAt: ok ? Date.now() : previous.successAt ?? null, error: !ok };
+        localStorage.setItem("git.fetch", JSON.stringify(this.fetchState));
+        // Even a partial fetch can update refs: refresh every open worktree's counts.
+        const ps = panes(), keys = spaces().map(s => where(s, ps)).filter(k => this.git[k]?.repo === repo);
+        if (keys.length) this.refreshGit(keys, cx);
+        cx.notify();
+        this.fetchDue(cx);
+      });
+    }
+    if (started) cx.notify();
   }
 
   checkNew(cx) {
@@ -177,6 +243,7 @@ export default class Spaces extends View {
       for (const repo of this.watching) if (!used.has(repo)) this.watching.delete(repo);
       this.refreshing = false;
       cx.notify();
+      this.fetchDue(cx);
     });
   }
 
@@ -433,6 +500,8 @@ export default class Spaces extends View {
     const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
     const sp = spaces();
     this.counts = agentCounts();
+    const fetchFailed = [...this.fetchRepos().keys()].some(repo => this.fetchState[repo]?.error);
+    const fetching = this.fetching.size > 0;
     const ids = new Set(sp.map(p => p.id));
     const kept = Object.fromEntries(Object.entries(shared("space.colors") ?? {}).filter(([id]) => ids.has(id)));
     let changed = Object.keys(kept).length !== Object.keys(shared("space.colors") ?? {}).length;
@@ -445,9 +514,16 @@ export default class Spaces extends View {
     if (changed) setShared("space.colors", kept);
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().id("spaces-heading").h(32).flex_none().pl(16).pr(10).items_center().justify_between().text_size(12).font_medium().text_color(t.dim)
-        .child(div().text_color(t.muted).child("Spaces"))
-        .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).role("button").accessibility_label("New space").hover(s => s.bg(t.hover).text_color(t.foreground))
-          .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child("Spaces"))
+        .child(h_flex().flex_none().gap(2).items_center()
+          .child(h_flex().id("spaces-fetch").h(26).px(6).gap(4).items_center().rounded(6)
+            .role("button").accessibility_label(fetching ? "Fetching remote commits" : fetchFailed ? "Fetch failed; retry" : "Fetch remote commits now")
+            .text_color(fetchFailed ? t.blocked : t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
+            .on_click((_e, cx) => this.fetchDue(cx, true))
+            .child(svg("mods/personal-spaces/fetch.svg").size(14).when(fetching, el => el.spin(900)))
+            .when(fetchFailed && !fetching, el => el.child(div().text_size(11).child("Retry"))))
+          .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).role("button").accessibility_label("New space").hover(s => s.bg(t.hover).text_color(t.foreground))
+            .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14)))))
       .child(v_flex().id("space-list").flex_1().min_h(0).overflow_y_scroll()
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
         .child(v_flex().id("space-content").w_full().flex_none().px(8).pb(8)

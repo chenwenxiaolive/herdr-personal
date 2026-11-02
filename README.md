@@ -6,6 +6,10 @@
 
 每个 Space 基础行高 50px；repo/worktree 名称在上，Git 分支及领先/落后提交数在下。无 Git 信息的项目仅显示名称，Agent 状态固定在右侧。
 
+Spaces 面板运行时，每 5 分钟自动 fetch 已打开项目的远程分支；首次识别仓库后也会执行。同一台机器上共享 Git 目录的 worktree 只 fetch 一次，同时最多处理两个仓库。完成后刷新所有相关 Space 的 `↑领先 / ↓落后`。计数仍以各分支的 upstream 为准。
+
+标题旁的刷新按钮可立即 fetch；认证或网络失败会显示 `Retry`，失败后按正常间隔重试。使用所在机器的现有 Git 凭据，不弹出交互登录；离线机器跳过。当前 fetch 执行器支持 macOS/Linux，只 fetch、不 pull 或合并，不清理引用、不递归子模块、不覆盖 `FETCH_HEAD`。可在布局的 `personal-spaces` props 中添加 `autoFetch` 控制开关（默认开启），或用 `fetchIntervalSeconds` 控制间隔（默认 300，最短 60 秒）。
+
 右上角 Files 打开文件树和只读预览，Changes 打开 Git 变更与 diff。点击当前已打开的按钮可收起面板；每个 Space 分别记住面板选择，单 Agent 视图同样可用。这两个面板直接使用 Herdr 自带的 `files` / `changes`。
 
 默认 JetBrains Mono / Geist，终端基础字号 14、界面缩放 1.1（当前显示字号 15.4）。原始基线保存在 Git 标签 `baseline-t3-bf05b35`。
