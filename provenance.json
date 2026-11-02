@@ -1,0 +1,15 @@
+{
+  "upstream": "https://github.com/JinJieBeWater/herdr-t3",
+  "commit": "bf05b354f5fc1ed80106a0d3fc7e02f0801d90b6",
+  "captured_at": "2026-11-03T05:37:48.419948+08:00",
+  "herdr_app": "0.1.12",
+  "herdr_core": "hc 0.1.17",
+  "layout": "herdr-personal",
+  "source_layout": "herdr-t3",
+  "mod_prefix": "personal-",
+  "notes": [
+    "Sources copied from installed interface; original T3 and personal layout are independent.",
+    "Runtime state, machine configuration, terminal content and screenshots are excluded.",
+    "Current appearance preserved, including zoom 1.1."
+  ]
+}

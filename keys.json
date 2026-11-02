@@ -1,0 +1,7 @@
+{
+  "layout:herdr-personal": {
+    "cmd-shift-b": "personal-chrome.sidebar",
+    "cmd-shift-a": "personal-tabs.view",
+    "cmd-shift-s": "personal-focus.settle"
+  }
+}
