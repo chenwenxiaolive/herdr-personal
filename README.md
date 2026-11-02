@@ -4,6 +4,8 @@
 
 当前界面：Herdr 0.1.12，T3 作者配色，侧栏仅显示 Spaces。每个项目右侧按状态显示 Agent 图标和数量：橙色 `!` 需要处理、蓝色旋转图标运行中、实心点已完成、空心点空闲。活跃子 Agent 的紧急状态会反映在父 Agent 上，没有 Agent 的项目不显示状态。
 
+每个 Space 基础行高 50px；repo/worktree 名称在上，Git 分支及领先/落后提交数在下。无 Git 信息的项目仅显示名称，Agent 状态固定在右侧。
+
 默认 JetBrains Mono / Geist，终端基础字号 14、界面缩放 1.1（当前显示字号 15.4）。原始基线保存在 Git 标签 `baseline-t3-bf05b35`。
 
 ## 文件

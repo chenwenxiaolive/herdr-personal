@@ -1,6 +1,6 @@
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
-// grouped by machine when more than one is known. After a space's name, the repo
-// its first terminal is in now, only where unusual: branch, ahead/behind. Each row's right edge shows its agents' states. Click to
+// grouped by machine when more than one is known. Git branch and ahead/behind
+// appear below the space's name; each row's right edge shows its agents' states. Click to
 // switch, right-click for its menu, drag to reorder.
 
 import { View, div, svg } from "gpui-kit";
@@ -10,6 +10,7 @@ import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, e
 const STATES = ["blocked", "working", "done", "idle"];
 const STATE_LABEL = { blocked: "Needs you", working: "Working", done: "Done", idle: "Idle" };
 const URGENCY = { blocked: 4, done: 3, working: 2, idle: 1 };
+const SPACE_ROW_HEIGHT = 50;
 
 // Count displayed agents, carrying a live child's urgency into its parent's mark.
 // Build one snapshot per render; remote addresses remain machine-qualified.
@@ -308,21 +309,17 @@ export default class Spaces extends View {
     });
   }
 
-  // Only what's unusual, after the name: "herdr \u00b7 spike \u21912 \u21931". The repo or
-  // branch goes when the name already says it (a worktree is named after its branch),
-  // and master/main go: nearly every space is on one.
-  gitTail(g, tree, name, t) {
-    const raw = g.branch ?? "detached";
+  // Keep the current branch on its own line, including main/master and branches
+  // matching a worktree's name. Include the repo only when the title doesn't say it.
+  gitSubtitle(g, tree, name, t) {
+    const branch = g.branch ?? "detached";
     const same = (a) => a.toLowerCase() === name.toLowerCase();
-    const branch = same(raw) || raw === "master" || raw === "main" ? "" : raw;
     const repo = tree || same(g.name) ? "" : g.name;
     const where = [repo, branch].filter(Boolean).join(" \u00b7 ");
     return h_flex()
-      .flex_1()
-      .flex_shrink(1000)
+      .w_full().h(14)
       .min_w(0)
       .gap(4)
-      .justify_end()
       .items_center()
       .text_size(11)
       .text_color(t.dim)
@@ -364,7 +361,7 @@ export default class Spaces extends View {
       .relative()
       .id(`space-${w.id}`)
       .px(8)
-      .h(30)
+      .h(SPACE_ROW_HEIGHT)
       .flex_none()
       .justify_center()
       .rounded(8)
@@ -407,7 +404,7 @@ export default class Spaces extends View {
       .on_mouse_down("right", () => this.menu(w))
       // The same tree lines as sub-agents: from the checkout's avatar center, turning into the branch icon.
       .when(tree === "├─", el => el.child(div().absolute().left(16.25).top(0).bottom(0).w(1.5).bg(t.input)))
-      .when(Boolean(tree), el => el.child(div().absolute().left(16.25).top(-4).h(19).w(9.75).border_l(1.5).border_b(1.5).rounded_bl(6).border_color(t.input)))
+      .when(Boolean(tree), el => el.child(div().absolute().left(16.25).top(11 - SPACE_ROW_HEIGHT / 2).h(SPACE_ROW_HEIGHT - 11).w(9.75).border_l(1.5).border_b(1.5).rounded_bl(6).border_color(t.input)))
       .child(
         h_flex()
           .w_full().min_w(0)
@@ -420,8 +417,9 @@ export default class Spaces extends View {
             .on_mouse_down("left", stop).on_click(toggle)
             .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(12).text_color(t.foreground))))
           .when(!tree && !(kids > 0 && this.hovered === w.id), el => el.child(h_flex().size(18).flex_none().rounded(5).bg(fill).items_center().justify_center().text_size(11).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")))
-          .child(div().min_w(0).max_w(150).truncate().text_color(t.foreground).child(w.name))
-          .child(g ? this.gitTail(g, tree, w.name, t) : div().flex_1())
+          .child(v_flex().flex_1().min_w(0).gap(2)
+            .child(div().h(18).min_w(0).truncate().text_color(t.foreground).child(w.name))
+            .when(Boolean(g), el => el.child(this.gitSubtitle(g, tree, w.name, t))))
           .when(folded, el => el.child(div().id(`space-count-${w.id}`).h(20).min_w(20).px(4).flex_none().flex().items_center().justify_center().rounded(4)
             .text_size(11).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
             .role("button").accessibility_label("Expand worktrees")
