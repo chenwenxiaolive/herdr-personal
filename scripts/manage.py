@@ -62,7 +62,7 @@ def check(home):
         raise RuntimeError("Expected all seven personal panels.")
     for mod in mods:
         app_run(home, "check", str(home / "mods" / mod.name))
-    for script in ["mods/personal-spaces/check-sidebar.cjs", "mods/personal-pane/check-pane.cjs", "mods/personal-spaces/check-fetch.cjs"]:
+    for script in ["mods/personal-spaces/check-sidebar.cjs", "mods/personal-pane/check-pane.cjs", "mods/personal-spaces/check-fetch.cjs", "mods/personal-spaces/check-resources.cjs"]:
         subprocess.run([node, script], cwd=home, check=True)
 
 

@@ -3,7 +3,7 @@
 // appear below the space's name; each row's right edge shows its agents' states. Click to
 // switch, right-click for its menu, drag to reorder.
 
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window } from "herdr";
 
@@ -14,8 +14,8 @@ const SPACE_ROW_HEIGHT = 50;
 
 // Count displayed agents, carrying a live child's urgency into its parent's mark.
 // Build one snapshot per render; remote addresses remain machine-qualified.
-function agentCounts() {
-  const list = agents(), bySpace = new Map(), children = new Map();
+function agentCounts(list) {
+  const bySpace = new Map(), children = new Map();
   const shown = new Map(list.map(a => [a.address, a.status]));
   for (const term of terminals()) {
     if (!term.parent || term.state !== "live") continue;
@@ -40,6 +40,24 @@ function agentCounts() {
     const state = stateOf(agent.address, agent.status);
     counts[state] = (counts[state] ?? 0) + 1;
     bySpace.set(agent.space, counts);
+  }
+  return bySpace;
+}
+
+// One program icon per agent type in each space, across all its tabs.
+function agentPrograms(list) {
+  const bySpace = new Map();
+  for (const agent of list) {
+    const program = agent.program;
+    const codex = agent.app === "codex" || program?.key === "codex";
+    const key = agent.app || program?.key || "agent";
+    const programs = bySpace.get(agent.space) ?? new Map();
+    if (!programs.has(key)) programs.set(key, {
+      name: program?.name || agent.app || "Agent",
+      icon: codex ? "mods/personal-spaces/chatgpt.svg" : program?.icon || "icons/agent.svg",
+      tint: codex || (program?.icon ? program.tint : true),
+    });
+    bySpace.set(agent.space, programs);
   }
   return bySpace;
 }
@@ -76,6 +94,33 @@ function select(s) {
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
 const FETCH_INTERVAL = 5 * 60 * 1000;
+const RESOURCE_INTERVAL = 5000;
+// Three lines from Linux's system counters; no remote files or services to install.
+const RESOURCE_SCRIPT = [
+  'IFS= read -r cpu < /proc/stat || exit 1',
+  'printf "%s\\n" "$cpu"',
+  'while IFS= read -r line; do case "$line" in MemTotal:*|MemAvailable:*) printf "%s\\n" "$line";; esac; done < /proc/meminfo',
+].join("\n");
+
+function parseResources(text) {
+  const cpu = text.match(/^cpu\s+(.+)$/m)?.[1].trim().split(/\s+/).map(Number);
+  const total = Number(text.match(/^MemTotal:\s+(\d+)\s+kB\s*$/m)?.[1]);
+  const available = Number(text.match(/^MemAvailable:\s+(\d+)\s+kB\s*$/m)?.[1]);
+  if (!cpu || cpu.length < 8 || !cpu.every(n => Number.isSafeInteger(n) && n >= 0)
+      || !Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(available)
+      || available < 0 || available > total) throw new Error("System counters unavailable");
+  // guest/guest_nice are already included in user/nice; exclude them from the sum.
+  return { ticks: cpu.slice(0, 8).reduce((a, b) => a + b, 0), idle: cpu[3] + cpu[4],
+    total, used: total - available, memory: 100 * (total - available) / total };
+}
+
+function cpuPercent(previous, sample) {
+  if (!previous) return null;
+  const ticks = sample.ticks - previous.ticks, idle = sample.idle - previous.idle;
+  if (ticks <= 0 || idle < 0 || idle > ticks) return null;
+  return 100 * (ticks - idle) / ticks;
+}
+
 // Keep authentication non-interactive while retaining configured SSH identities/options.
 // Fetch updates remote refs; leave FETCH_HEAD, tags, submodules and maintenance alone.
 const FETCH_SCRIPT = [
@@ -114,6 +159,11 @@ export default class Spaces extends View {
     this.machines = [];
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.foldedRepos = new Set(JSON.parse(localStorage.getItem("repos.folded") ?? "[]"));
+    this.resources = {};
+    this.resourceCpu = {};
+    this.resourceBusy = new Set();
+    this.refreshResources(cx);
+    cx.timer.every(RESOURCE_INTERVAL, cx => this.refreshResources(cx));
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
     // `git status` walks the whole tree, on another machine a process there:
@@ -123,6 +173,52 @@ export default class Spaces extends View {
   }
 
   close() { this.closed = true; }
+
+  refreshResources(cx) {
+    if (this.closed) return;
+    const online = new Set(machines().filter(m => m.name && m.layout === "ready").map(m => m.name));
+    for (const name of Object.keys(this.resources)) if (!online.has(name)) {
+      delete this.resources[name];
+      delete this.resourceCpu[name];
+    }
+    for (const name of online) {
+      if (this.resourceBusy.has(name)) continue;
+      this.resourceBusy.add(name);
+      cx.spawn(async cx => {
+        try {
+          const result = await hc(["exec", "--on", name, "--timeout", "5", "--", "sh", "-c", RESOURCE_SCRIPT]);
+          if (this.closed) return;
+          if (result.code !== 0) throw new Error("System counters unavailable");
+          const sample = parseResources(result.stdout);
+          if (!machines().some(m => m.name === name && m.layout === "ready")) return;
+          this.resources[name] = { ...sample, cpu: cpuPercent(this.resourceCpu[name], sample), at: Date.now() };
+          this.resourceCpu[name] = sample;
+        } catch {
+          if (!this.closed) {
+            delete this.resources[name];
+            delete this.resourceCpu[name];
+          }
+        } finally {
+          this.resourceBusy.delete(name);
+          if (!this.closed) cx.notify();
+        }
+      });
+    }
+  }
+
+  resourceRow(name, connected, t) {
+    const latest = this.resources[name];
+    const stats = connected && latest && Date.now() - latest.at < RESOURCE_INTERVAL * 3 ? latest : null;
+    const cpu = stats?.cpu == null ? "—" : `${Math.round(stats.cpu)}%`;
+    const memory = stats ? `${Math.round(stats.memory)}%` : "—";
+    const amount = stats ? `${(stats.used / 1048576).toFixed(1)}/${(stats.total / 1048576).toFixed(1)} GiB` : "";
+    return h_flex().id(`machine-resources-${name}`).h(22).flex_none().pl(26).pr(8).gap(10).items_center()
+      .text_size(10.5).text_color(t.dim)
+      .accessibility_label(`${name}: CPU ${cpu}, RAM ${memory}${amount ? `, ${amount}` : ""}`)
+      .child(div().flex_none().child(`CPU ${cpu}`))
+      .child(div().flex_none().child(`RAM ${memory}`))
+      .child(div().flex_1().min_w(0).truncate().child(amount));
+  }
 
   // Use the common Git directory plus machine, so linked worktrees fetch only once.
   fetchRepos() {
@@ -372,7 +468,7 @@ export default class Spaces extends View {
         .text_size(13).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
         .on_click(() => run("space.new", m ? { machine: m } : {}))
         .child(svg("mods/workspace-chrome/plus.svg").size(12)).child("New space there");
-      return [head, ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
+      return [head, ...(m ? [this.resourceRow(m, connected, t)] : []), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
     });
   }
 
@@ -397,6 +493,7 @@ export default class Spaces extends View {
 
   agentStatus(w, t) {
     const counts = this.counts?.get(w.id) ?? {};
+    const programs = [...(this.programs?.get(w.id)?.values() ?? [])];
     const states = STATES.filter(state => counts[state]);
     if (!states.length) return null;
     const mark = state => state === "working"
@@ -404,13 +501,19 @@ export default class Spaces extends View {
       : state === "blocked"
         ? div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold()
           .text_color(t.blocked).flex().items_center().justify_center().child("!")
-        : div().size(7).mx(3.5).flex_none().rounded_full()
+        : div().size(7).flex_none().rounded_full()
           .when(state === "done", el => el.bg(t.done))
           .when(state === "idle", el => el.border(1.5).border_color(t.idle ?? t.dim));
     return h_flex().id(`space-agents-${w.id}`).flex_none().gap(6).items_center()
       .role("status").accessibility_label(states.map(s => `${STATE_LABEL[s]}: ${counts[s]}`).join(", "))
+      .when(programs.length > 0, el => el.child(h_flex().id(`space-agent-programs-${w.id}`).flex_none().gap(4).items_center()
+        .accessibility_label(`Agents: ${programs.map(p => p.name).join(", ")}`)
+        .children(programs.map(p => h_flex().size(18).flex_none().items_center().justify_center()
+          .accessibility_label(p.name)
+          .child((p.tint ? svg(p.icon).text_color(t.muted) : image(p.icon)).size(14).flex_none())))))
       .children(states.map(state => h_flex().id(`space-agent-${w.id}-${state}`).flex_none().gap(3).items_center()
-        .child(mark(state))
+        // Keep agent icons in the same column for working, blocked, done and idle.
+        .child(h_flex().size(14).flex_none().items_center().justify_center().child(mark(state)))
         .child(div().text_size(11).text_color(state === "idle" ? t.dim : t[state]).child(String(counts[state])))));
   }
 
@@ -499,7 +602,9 @@ export default class Spaces extends View {
     const t = theme();
     const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
     const sp = spaces();
-    this.counts = agentCounts();
+    const list = agents();
+    this.counts = agentCounts(list);
+    this.programs = agentPrograms(list);
     const fetchFailed = [...this.fetchRepos().keys()].some(repo => this.fetchState[repo]?.error);
     const fetching = this.fetching.size > 0;
     const ids = new Set(sp.map(p => p.id));

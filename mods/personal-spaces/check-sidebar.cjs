@@ -674,7 +674,7 @@ for (const width of [180, 200, 240, 268, 480]) {
     f.panes()[0].status = "blocked";
     const all = () => [tabs.render(cx), f.load("personal-agents").render(cx), f.load("personal-spaces").render(cx), f.load("personal-chrome").render(cx), f.load("personal-pane", { pane: "p0" }).render(cx)].flatMap(walk);
     const look = n => { const { accessibility_label, ...s } = n.style; return JSON.stringify([s, strings(n)]); };
-    const marks = all().filter(n => strings(n).join("") === "!" && n.style.size === 14);
+    const marks = all().filter(n => n.items.includes("!") && n.style.size === 14);
     assert.ok(marks.length >= 3, "tabs, the agents list and the pane header all show needs-you");
     assert.equal(new Set(marks.map(look)).size, 1, "needs-you is drawn the same everywhere");
     assert.ok(!all().some(n => Object.keys(n.style).some(k => k.includes("scrollbar"))), "lists scroll without a painted bar");
@@ -787,6 +787,31 @@ for (const width of [180, 200, 240, 268, 480]) {
   const nodes = n => [n, ...(n.children ?? []).flatMap(nodes)];
   assert.ok(nodes(layout).some(n => n.content?.mod === "personal-spaces"));
   assert.ok(!nodes(layout).some(n => n.content?.mod === "personal-agents"), "the standalone Agents panel is absent from the personal layout");
+}
+
+for (const width of [180, 268, 480]) {
+  const f = fixture(width), sp = f.load("personal-spaces");
+  const programs = (space = "s0") => find(sp.render(cx), `space-agent-programs-${space}`);
+  assert.equal(programs().style.accessibility_label, "Agents: Pi");
+  assert.equal(programs().items[0].items[0].source, "icons/pi.svg");
+  assert.equal(programs("s2").items[0].items[0].source, "icons/pi.svg", "remote spaces show their own agent type");
+  assert.equal(programs("s1"), null, "a space without agents has no icon group or placeholder");
+  f.agents().push({ ...f.agents()[0], address: "another-pi", tab: "another-tab" });
+  assert.equal(programs().items.length, 1, "the same agent type across tabs appears once");
+  f.agents().push({ ...f.agents()[0], address: "codex", program: {
+    key: "codex", name: "Codex", icon: "icons/codex.svg", tint: false, agent: true,
+  } });
+  assert.deepEqual(programs().items.map(slot => [slot.items[0].kind, slot.items[0].source]),
+    [["svg", "icons/pi.svg"], ["svg", "mods/personal-spaces/chatgpt.svg"]], "Codex uses the transparent ChatGPT mark alongside other agent icons");
+  assert.equal(programs().style.accessibility_label, "Agents: Pi, Codex");
+  assert.equal(programs("s2").items.length, 1, "local types do not leak into remote spaces");
+  f.agents().splice(0, f.agents().length, { ...f.agents()[0], program: {
+    key: "custom", name: "Custom Agent", icon: null,
+  } });
+  assert.equal(programs().items[0].items[0].source, "icons/agent.svg", "an agent without a brand icon uses the native agent glyph");
+  f.agents().length = 0;
+  assert.equal(programs(), null, "the icon disappears when the last agent leaves");
+  assert.equal(find(sp.render(cx), "space-agents-s0"), null, "no empty status group remains");
 }
 
 (async () => {

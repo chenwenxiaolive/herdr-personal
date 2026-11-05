@@ -3,6 +3,14 @@ import { h_flex } from "gpui-base";
 import { spaces, panes, agents, terminals, focused, run, openOverlay, theme, window, layout, settings, nextCommand } from "herdr";
 import { namer } from "./name.js";
 
+function programIcon(program, app, t) {
+  const codex = app === "codex" || program?.key === "codex";
+  const path = codex ? "mods/personal-tabs/chatgpt.svg" : program?.icon;
+  if (!path) return null;
+  return h_flex().size(18).flex_none().items_center().justify_center()
+    .child((codex || program.tint ? svg(path).text_color(t.muted) : image(path)).size(14).flex_none());
+}
+
 // With the focus list showing (personal-focus), an agent settled there isn't news: its done is left out.
 // One that works or gets stuck is unsettled there, so only done needs leaving out.
 function awake() {
@@ -90,10 +98,10 @@ export default class Tabs extends View {
     const shown = focused()?.agent;
     const a = agents().find(x => x.address === shown);
     if (!a) return div().id("agent-bar").flex_1().px(8).text_size(13).text_color(t.dim).child("No agent");
-    const p = a.program;
+    const pic = programIcon(a.program, a.app, t);
     const news = a.status !== "done" || live.some(x => x.address === a.address);
     return h_flex().id("agent-bar").flex_1().min_w(0).h(28).px(8).gap(8).items_center().text_size(13)
-      .when(Boolean(p?.icon), el => el.child(p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)))
+      .when(Boolean(pic), el => el.child(pic))
       .child(div().flex_none().max_w(320).truncate().text_color(t.foreground).child(title(a)))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(a.space_name ?? ""))
       .when(["working", "blocked", "done"].includes(a.status) && news, el => el.child(mark(t, a.status)));
@@ -129,7 +137,7 @@ export default class Tabs extends View {
       // A tab nobody named reads as its lead pane: the agent in it, else the focused one.
       const mine = ps.filter(p => p.tab === c.id);
       const lead = mine.find(p => p.status != null) ?? mine.find(p => p.focused) ?? mine[0];
-      const program = lead?.program;
+      const pic = programIcon(lead?.program, lead?.app, t);
       const name = c.named ? c.name : lead ? title(lead) : "Terminal";
       return h_flex().id(`tab-${c.id}`).h(28).px(8).gap(8).rounded(6).items_center().flex_none().text_size(13)
         .bg(c.active ? t.selected : t.chrome).text_color(c.active ? t.foreground : t.muted)
@@ -141,7 +149,7 @@ export default class Tabs extends View {
           else run("tab.select", { id: c.id });
         })
         .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
-        .when(Boolean(program?.icon), el => el.child(program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)))
+        .when(Boolean(pic), el => el.child(pic))
         .child(div().max_w(170).truncate().child(c.zoomed ? `${name} Z` : name))
         .when(c.status === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
         .when(c.status === "blocked", el => el.child(blockedMark(t)))

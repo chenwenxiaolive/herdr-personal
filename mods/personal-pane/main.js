@@ -9,9 +9,12 @@ import { h_flex } from "gpui-base";
 import { panes, terminals, props, run, theme, home, layout } from "herdr";
 import { namer } from "./name.js";
 
-function icon(p, size, color) {
-  if (!p?.icon) return null;
-  return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
+function icon(p, size, color, app) {
+  const codex = app === "codex" || p?.key === "codex";
+  const path = codex ? "mods/personal-pane/chatgpt.svg" : p?.icon;
+  if (!path) return null;
+  return h_flex().size(18).flex_none().items_center().justify_center()
+    .child((codex || p.tint ? svg(path).text_color(color) : image(path)).size(size).flex_none());
 }
 
 function folder(cwd) {
@@ -54,7 +57,7 @@ export default class Pane extends View {
     const p = this.me();
     if (!p) return div();
     const name = namer()(p);
-    const pic = icon(p.program, 14, t.muted);
+    const pic = icon(p.program, 14, t.muted, p.app);
     const st = p.status;
     const pane = p.pane;
     // The rounded frame paints the background; rectangular child fills would cover its corners.
