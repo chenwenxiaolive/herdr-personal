@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, "main.js"), "utf8")
 const sample = (busy, idle, available = 2048) =>
   `cpu ${busy} 0 0 ${idle} 0 0 0 0 900 100\nMemTotal: 4096 kB\nMemAvailable: ${available} kB\n`;
 
-const env = { View: class {}, spaces: () => [], panes: () => [], machines: () => [] };
+const env = { View: class {}, spaces: () => [], panes: () => [], machines: () => [], window: () => ({ platform: "unknown" }) };
 const context = vm.createContext(env);
 vm.runInContext(source, context);
 const parse = context.parseResources, usage = context.cpuPercent;
@@ -86,5 +86,36 @@ async function polling() {
   assert.equal(mod.resources.vps, undefined, "closing ignores the in-flight response");
 }
 
-polling().then(() => console.log("ok: CPU deltas, guest counters, available memory, first/reset samples, invalid data, remote routing, overlap prevention, disconnects, failures and panel shutdown."))
+async function localPolling() {
+  for (const platform of ["macos", "linux"]) {
+    const calls = [], tasks = [];
+    const cx = { notify() {}, spawn: job => tasks.push(Promise.resolve().then(() => job(cx))) };
+    const ctx = vm.createContext({ ...env, window: () => ({ platform }), appHome: () => "/home/test/config with spaces",
+      localStorage: { getItem: () => null },
+      hc: async args => { calls.push(Array.from(args)); return { code: 0, stdout: sample(100, 100) }; },
+    });
+    vm.runInContext(source, ctx);
+    const mod = new ctx.Mod();
+    mod.init({}, { spawn() {}, timer: { every() {} } });
+    mod.resourceBusy.clear();
+    mod.refreshResources(cx);
+    while (tasks.length) await Promise.all(tasks.splice(0));
+    assert.equal(calls.length, 1, "the computer is sampled even without any remote machines");
+    assert.ok(!calls[0].includes("--on"), "local sampling must not route to a server");
+    assert.equal(mod.resources[""].memory, 50);
+    assert.equal(mod.resources[""].cpu, null);
+    if (platform === "macos") assert.deepEqual(calls[0].slice(4),
+      ["/usr/bin/python3", "/home/test/config with spaces/mods/personal-spaces/resources-macos.py"],
+      "the macOS sampler path remains a single argument even with spaces");
+    else assert.equal(calls[0][4], "sh");
+  }
+  if (process.platform === "darwin") {
+    const output = require("node:child_process").execFileSync("/usr/bin/python3", [path.join(__dirname, "resources-macos.py")], { encoding: "utf8", timeout: 5000 });
+    const native = parse(output);
+    assert.ok(native.total > 0 && native.used >= 0 && native.used <= native.total, "the real macOS sampler returns valid physical memory");
+    assert.ok(native.ticks > 0 && native.idle >= 0 && native.idle <= native.ticks);
+  }
+}
+
+polling().then(localPolling).then(() => console.log("ok: CPU deltas, memory, invalid data, remote/local routing, native macOS sampling, overlap prevention, disconnects and panel shutdown."))
   .catch(error => { console.error(error); process.exit(1); });

@@ -1,4 +1,7 @@
 {
+  "terminal": {
+    "shift-insert": "terminal.paste"
+  },
   "layout:herdr-personal": {
     "cmd-shift-b": "personal-chrome.sidebar",
     "cmd-shift-a": "personal-tabs.view",

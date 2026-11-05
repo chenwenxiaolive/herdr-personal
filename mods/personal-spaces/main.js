@@ -5,7 +5,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window } from "herdr";
+import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, appHome } from "herdr";
 
 const STATES = ["blocked", "working", "done", "idle"];
 const STATE_LABEL = { blocked: "Needs you", working: "Working", done: "Done", idle: "Idle" };
@@ -176,7 +176,10 @@ export default class Spaces extends View {
 
   refreshResources(cx) {
     if (this.closed) return;
+    const platform = window()?.platform;
     const online = new Set(machines().filter(m => m.name && m.layout === "ready").map(m => m.name));
+    // Empty name identifies this computer, separately from named remote hosts.
+    if (platform === "macos" || platform === "linux") online.add("");
     for (const name of Object.keys(this.resources)) if (!online.has(name)) {
       delete this.resources[name];
       delete this.resourceCpu[name];
@@ -186,11 +189,14 @@ export default class Spaces extends View {
       this.resourceBusy.add(name);
       cx.spawn(async cx => {
         try {
-          const result = await hc(["exec", "--on", name, "--timeout", "5", "--", "sh", "-c", RESOURCE_SCRIPT]);
+          const command = !name && platform === "macos"
+            ? ["/usr/bin/python3", `${appHome()}/mods/personal-spaces/resources-macos.py`]
+            : ["sh", "-c", RESOURCE_SCRIPT];
+          const result = await hc(["exec", ...(name ? ["--on", name] : []), "--timeout", "5", "--", ...command]);
           if (this.closed) return;
           if (result.code !== 0) throw new Error("System counters unavailable");
           const sample = parseResources(result.stdout);
-          if (!machines().some(m => m.name === name && m.layout === "ready")) return;
+          if (name && !machines().some(m => m.name === name && m.layout === "ready")) return;
           this.resources[name] = { ...sample, cpu: cpuPercent(this.resourceCpu[name], sample), at: Date.now() };
           this.resourceCpu[name] = sample;
         } catch {
@@ -207,14 +213,14 @@ export default class Spaces extends View {
   }
 
   resourceRow(name, connected, t) {
-    const latest = this.resources[name];
+    const latest = this.resources[name ?? ""];
     const stats = connected && latest && Date.now() - latest.at < RESOURCE_INTERVAL * 3 ? latest : null;
     const cpu = stats?.cpu == null ? "—" : `${Math.round(stats.cpu)}%`;
     const memory = stats ? `${Math.round(stats.memory)}%` : "—";
     const amount = stats ? `${(stats.used / 1048576).toFixed(1)}/${(stats.total / 1048576).toFixed(1)} GiB` : "";
-    return h_flex().id(`machine-resources-${name}`).h(22).flex_none().pl(26).pr(8).gap(10).items_center()
+    return h_flex().id(`machine-resources-${name ?? "local"}`).h(22).flex_none().pl(26).pr(8).gap(10).items_center()
       .text_size(10.5).text_color(t.dim)
-      .accessibility_label(`${name}: CPU ${cpu}, RAM ${memory}${amount ? `, ${amount}` : ""}`)
+      .accessibility_label(`${name ?? "This computer"}: CPU ${cpu}, RAM ${memory}${amount ? `, ${amount}` : ""}`)
       .child(div().flex_none().child(`CPU ${cpu}`))
       .child(div().flex_none().child(`RAM ${memory}`))
       .child(div().flex_1().min_w(0).truncate().child(amount));
@@ -441,7 +447,6 @@ export default class Spaces extends View {
         || spaces().some(s => (s.machine ?? null) === m && !this.shown.has(s.id));
     };
     const loadingRow = m => div().id(`machine-loading-${m ?? "local"}`).h(30).flex_none().px(8).text_size(13).text_color(t.dim).child("Loading…");
-    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.map(draw);
     const machineNames = [null, ...remote];
     return machineNames.flatMap((m, i) => {
       const mine = rows.filter((r) => (r.w.machine ?? null) === m);
@@ -468,7 +473,8 @@ export default class Spaces extends View {
         .text_size(13).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
         .on_click(() => run("space.new", m ? { machine: m } : {}))
         .child(svg("mods/workspace-chrome/plus.svg").size(12)).child("New space there");
-      return [head, ...(m ? [this.resourceRow(m, connected, t)] : []), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
+      const showResources = m || ["macos", "linux"].includes(window()?.platform);
+      return [head, ...(showResources ? [this.resourceRow(m, connected, t)] : []), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
     });
   }
 

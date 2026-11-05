@@ -14,7 +14,7 @@ function fixture({ spaces, repos, execute, storage = new Map(), props = {} }) {
   const key = s => JSON.stringify([s.machine ?? null, s.folder]);
   const context = vm.createContext({ View: class {},
     Date: class extends Date { static now() { return now; } },
-    spaces: () => spaces, panes: () => [],
+    spaces: () => spaces, panes: () => [], window: () => ({ platform: "unknown" }),
     machines: () => [...online].map(name => ({ name, layout: "ready" })), exec: execute,
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v) },
   });

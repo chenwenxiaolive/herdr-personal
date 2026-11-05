@@ -10,7 +10,7 @@
 
 每个 Space 基础行高 50px；repo/worktree 名称在上，Git 分支及领先/落后提交数在下。无 Git 信息的项目仅显示名称，Agent 状态固定在右侧。
 
-每台远程 Linux 服务器的标题下显示 CPU 使用率、内存使用率及已用/总内存（GiB），每 5 秒刷新。CPU 按相邻两次 `/proc/stat` 采样计算，首次采样显示 `—`；内存按 `/proc/meminfo` 的 `MemTotal - MemAvailable` 计算。仅通过现有连接执行只读采样，不安装服务。服务器断开、读取失败或数据过期时显示 `—`。同一服务器的多个 Space 共用一次采样，收起项目列表后仍显示资源占用。
+本机（This computer，macOS/Linux）和每台远程 Linux 服务器的标题下显示 CPU 使用率、内存使用率及已用/总内存（GiB），每 5 秒刷新。CPU 按相邻两次系统计数器采样计算，首次采样显示 `—`。Linux 读取 `/proc/stat` 和 `/proc/meminfo`，内存为 `MemTotal - MemAvailable`；macOS 使用系统 CPU 计数器、`vm_stat` 和 `sysctl`，内存包含应用、不可分页和压缩内存，扣除可清除内存。macOS 采样使用系统 Python 3，无第三方依赖。仅通过现有连接执行只读采样，不安装服务。服务器断开、读取失败或数据过期时显示 `—`。同一台机器的多个 Space 共用一次采样，收起项目列表后仍显示资源占用；没有连接服务器时也显示本机数据。
 
 Spaces 面板运行时，每 5 分钟自动 fetch 已打开项目的远程分支；首次识别仓库后也会执行。同一台机器上共享 Git 目录的 worktree 只 fetch 一次，同时最多处理两个仓库。完成后刷新所有相关 Space 的 `↑领先 / ↓落后`。计数仍以各分支的 upstream 为准。
 
@@ -52,6 +52,7 @@ Node.js 默认从 PATH 查找；可通过 `NODE` 指定。此电脑也可自动�
 
 ## 快捷键与回退
 
+- Shift+Insert：在终端中粘贴剪贴板内容，macOS 原有 Cmd+V 也可继续使用。
 - Cmd+Shift+B：切换 Spaces / Focus。
 - Cmd+Shift+A：切换单 Agent 视图。
 - Cmd+Shift+S：收起或恢复当前已完成 Agent（Focus 模式）。

@@ -816,6 +816,12 @@ for (const width of [180, 268, 480]) {
 
 (async () => {
   {
+    const f = fixture(268), sp = f.load("personal-spaces");
+    for (const space of f.spaces()) space.machine = null;
+    assert.ok(find(sp.render(cx), "machine-local"), "local-only setups retain the machine heading");
+    assert.ok(find(sp.render(cx), "machine-resources-local"), "local resource readings do not require a remote server");
+  }
+  {
     const f = fixture(268);
     assert.equal(find(f.load("personal-tabs").render(cx), "pulls-review"), null, "no review button");
   }
