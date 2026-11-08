@@ -1,5 +1,5 @@
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { h_flex, set_theme } from "gpui-base";
 import { spaces, panes, agents, terminals, focused, run, openOverlay, theme, window, layout, settings, nextCommand } from "herdr";
 import { namer } from "./name.js";
 
@@ -38,10 +38,27 @@ function find(node, id) {
   return null;
 }
 
+// Base's editor falls back to its accent at 40% opacity for text selections.
+// Herdr projects hover into that token, making selections invisible on T3's
+// dark surfaces. Correct only that projection; the personal UI still uses
+// Herdr's separate hover color. Leave a future native fix/custom palette alone.
+function syncEditorSelection(cx) {
+  const base = cx.theme(), t = theme();
+  const rgb = value => value?.toLowerCase().replace(/^(#[0-9a-f]{6})ff$/, "$1");
+  if (rgb(base.colors.accent) !== rgb(t.hover)
+      || rgb(base.colors.accent) === rgb(base.colors.primary)) return;
+  set_theme({ appearance: base.appearance, tokens: {
+    colors: { ...base.colors, accent: base.colors.primary },
+    spacing: base.spacing, radius: base.radius,
+  } });
+}
+
 export default class Tabs extends View {
   init(_props, cx) {
     this.pressed = null;
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    // Also covers a preview restored when the app starts or this mod reloads.
+    cx.spawn(async cx => syncEditorSelection(cx));
     // `personal-tabs.view` (cmd-shift-a in keys.json) switches between the tabs and the agent view.
     cx.spawn(async (cx) => {
       for (;;) {
@@ -166,9 +183,12 @@ export default class Tabs extends View {
         .role("button").accessibility_label(`${on ? "Hide" : "Show"} ${label}`)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => {
+        .on_click((_event, cx) => {
           if (on) run("layout.hide", { id: "panel" });
-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+          else {
+            syncEditorSelection(cx);
+            run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" });
+          }
         }).child(svg(icon).size(14)).child(label);
     };
     // Old saved rails and a dragged-narrow sidebar can be smaller than the window buttons.

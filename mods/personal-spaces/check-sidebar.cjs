@@ -48,7 +48,7 @@ function fire(node, event, ...args) {
 }
 
 const modRoot = path.dirname(__dirname);
-const cx = { notify() {}, stop_propagation() {}, spawn() {}, timer: { every() {} }, focus_handle: () => { let gone = false; return { focus() { assert.ok(!gone, "a released FocusHandle throws when used"); }, is_focused: () => false, release() { gone = true; return true; } }; } };
+const cx = { theme: () => ({ appearance: "dark", colors: { accent: "#202024", primary: "#6b93ff" }, spacing: {}, radius: {} }), notify() {}, stop_propagation() {}, spawn() {}, timer: { every() {} }, focus_handle: () => { let gone = false; return { focus() { assert.ok(!gone, "a released FocusHandle throws when used"); }, is_focused: () => false, release() { gone = true; return true; } }; } };
 function fixture(width) {
   const program = { key: "pi", name: "Pi", agent: true, tint: true, icon: "icons/pi.svg" };
   const tabs = ["local task", "second task", "remote task"].map((name, i) => ({ id: `b${i}`, name, named: true }));
@@ -64,6 +64,7 @@ function fixture(width) {
   const theme = new Proxy({ selected: "#2c2c2f", hover: "#202024", working: "#6b93ff", blocked: "#f0a33a", done: "#ececf0", muted: "#a9a9b4" }, { get: (t, k) => t[k] ?? "#a9a9b4" });
   const env = {
     View: class {}, div: () => element(), h_flex: () => element("h"), v_flex: () => element("v"),
+    set_theme() {},
     Button: { new: id => element("button").id(id) },
     Popover: { new: id => element("popover").id(id) }, Input: { new: () => element("input") },
     InputState: { new: () => ({ on() {}, value: () => "", set_value() {}, focus() {} }) },

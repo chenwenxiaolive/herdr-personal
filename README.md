@@ -18,6 +18,8 @@ Spaces 面板运行时，每 5 分钟自动 fetch 已打开项目的远程分支
 
 右上角 Files 打开文件树和只读预览，Changes 打开 Git 变更与 diff。点击当前已打开的按钮可收起面板；每个 Space 分别记住面板选择，单 Agent 视图同样可用。这两个面板直接使用 Herdr 自带的 `files` / `changes`。
 
+文件预览支持拖选文字后 Cmd+C 复制，点击内容后 Cmd+A 可全选。个人标签栏会在启动及打开 Files/Changes 时修正原生编辑器的颜色映射，让选区使用蓝色强调色；侧栏和标签栏仍保留原来的悬停配色。
+
 默认 JetBrains Mono / Geist，终端基础字号 14、界面缩放 1.1（当前显示字号 15.4）。原始基线保存在 Git 标签 `baseline-t3-bf05b35`。
 
 ## 文件
