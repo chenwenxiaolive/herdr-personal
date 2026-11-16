@@ -16,11 +16,13 @@ const SPACE_ROW_HEIGHT = 50;
 // separate from the core status; don't change the terminal's actual lifecycle.
 function needsAnswer(agent) {
   if (agent?.app !== "codex" && agent?.program?.key !== "codex") return false;
-  const title = (agent.title ?? "").trim().replace(/^(?:\[\s*!\s*\]|⚠\uFE0F?|🔔|!)\s*/, "");
+  // Codex blinks between [ ! ] and [ . ] while the same question is pending.
+  const title = (agent.title ?? "").trim().replace(/^(?:\[\s*[!.]\s*\]|⚠\uFE0F?|🔔|!)\s*/, "");
   return /^Action Required(?:\s*[|:—–-]|\s*$)/i.test(title);
 }
 
-// Count displayed agents, carrying a live child's urgency into its parent's mark.
+// Count displayed agents, carrying a live child's core urgency into its parent's mark.
+// Title-based questions belong only to the agent's own Space, not an ancestor's.
 // Build one snapshot per render; remote addresses remain machine-qualified.
 function agentCounts(list) {
   const bySpace = new Map(), children = new Map();
@@ -33,7 +35,7 @@ function agentCounts(list) {
   }
   const normal = state => state === "error" ? "blocked" : STATES.includes(state) ? state : "idle";
   const stateOf = (address, state, seen = new Set()) => {
-    let result = needsAnswer(shown.get(address)) ? "question" : normal(state);
+    let result = normal(state);
     if (seen.has(address)) return result;
     seen.add(address);
     for (const child of children.get(address) ?? []) {
@@ -45,7 +47,7 @@ function agentCounts(list) {
   };
   for (const agent of list) {
     const counts = bySpace.get(agent.space) ?? {};
-    const state = stateOf(agent.address, agent.status);
+    const state = needsAnswer(agent) ? "question" : stateOf(agent.address, agent.status);
     counts[state] = (counts[state] ?? 0) + 1;
     bySpace.set(agent.space, counts);
   }

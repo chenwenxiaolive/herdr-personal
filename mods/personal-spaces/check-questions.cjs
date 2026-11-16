@@ -32,9 +32,9 @@ const codex = (address = "remote/t1", space = "sample-space") => ({ address, spa
 
 (async () => {
   const f = fixture(), a = codex(); f.list.push(a);
-  for (const title of ["Action Required", "Action Required | Fix", "[!] Action Required | Fix", "[ ! ] Action Required | Fix", "⚠ Action Required — Fix"])
+  for (const title of ["Action Required", "Action Required | Fix", "[!] Action Required | Fix", "[ ! ] Action Required | Fix", "[.] Action Required | Fix", "[ . ] Action Required | Fix", "⚠ Action Required — Fix"])
     assert.equal(f.matches({ ...a, title }), true, title);
-  for (const title of ["Fix Action Required parser", "Action Requiredness", "Working | Fix", "", "~/Action Required"])
+  for (const title of ["Fix Action Required parser", "Action Requiredness", "Working | Fix", "", "~/Action Required", "[task] Action Required | Fix", "[ . ] Working | Fix"])
     assert.equal(f.matches({ ...a, title }), false, title);
   assert.equal(f.matches({ ...a, app: "claude-code", program: { key: "claude" } }), false);
   assert.equal(f.matches({ ...a, app: null }), true, "program identity is a supported fallback");
@@ -47,6 +47,13 @@ const codex = (address = "remote/t1", space = "sample-space") => ({ address, spa
   assert.equal(f.counts().get(a.space).question, 1);
   assert.equal(f.counts().get(a.space).working, undefined);
   assert.equal(a.status, "working", "the core lifecycle is never rewritten");
+  for (let frame = 0; frame < 20; frame++) {
+    a.title = `[ ${frame % 2 ? "!" : "."} ] Action Required | Review pending changes | sample-space`;
+    f.sync(); await f.drain();
+    assert.equal(f.counts().get(a.space).question, 1, "every title animation frame keeps the same badge");
+    assert.equal(f.notices.length, 1, "title blinking never posts a second toast");
+    assert.equal(f.closed.length, 0, "title blinking never closes the existing toast");
+  }
   a.title = "Action Required | Another task title"; a.seq = 100;
   f.sync(); await f.drain();
   assert.equal(f.notices.length, 1, "output/title suffix updates don't re-alert");
@@ -70,9 +77,16 @@ const codex = (address = "remote/t1", space = "sample-space") => ({ address, spa
   assert.equal(f.notices.length, 3, "separate agents get independent alerts");
   f.list.push({ address: "remote/parent", space: "parent-space", status: "working", app: "codex" });
   f.terms.push({ address: a.address, parent: "remote/parent", state: "live", status: "working" });
-  assert.equal(f.counts().get("parent-space").question, 1, "a live child's pending question reaches its parent");
+  a.status = "working";
+  assert.equal(f.counts().get(a.space).question, 1, "the question stays in its actual Space");
+  assert.equal(f.counts().get("parent-space").question, undefined, "a child's question does not label the parent's Space");
+  assert.equal(f.counts().get("parent-space").working, 1);
+  a.status = "blocked";
+  assert.equal(f.counts().get("parent-space").blocked, 1, "native child status propagation is preserved");
   f.terms[0].state = "exited";
   assert.equal(f.counts().get("parent-space").working, 1, "exited children don't keep their parent pending");
+  f.list.at(-1).title = "[ . ] Action Required | Parent's own question";
+  assert.equal(f.counts().get("parent-space").question, 1, "the parent's own question still labels its Space");
 
   const race = fixture(), c = codex(); race.list.push(c); race.sync();
   c.title = "Working"; race.sync(); await race.drain();
@@ -81,5 +95,5 @@ const codex = (address = "remote/t1", space = "sample-space") => ({ address, spa
   assert.equal(race.notices.length, 0, "a closed mod cannot post delayed alerts");
   f.list.length = 0; f.sync(); await f.drain();
   assert.equal(f.mod.questionSeen.size, 0, "ended/removed agents release deduplication state");
-  console.log("ok: Codex question titles, status recovery, parent propagation, toast routing, deduplication, reloads, reconnects and races.");
+  console.log("ok: Codex title animation, question Space isolation, status recovery, toast routing, deduplication, reloads, reconnects and races.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
