@@ -5,18 +5,26 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, appHome } from "herdr";
+import { spaces, agents, terminals, machines, panes, layout, run, openOverlay, closeOverlay, notify, exec, hc, theme, shared, setShared, watchFolder, window, appHome } from "herdr";
 
-const STATES = ["blocked", "working", "done", "idle"];
-const STATE_LABEL = { blocked: "Needs you", working: "Working", done: "Done", idle: "Idle" };
-const URGENCY = { blocked: 4, done: 3, working: 2, idle: 1 };
+const STATES = ["question", "blocked", "working", "done", "idle"];
+const STATE_LABEL = { question: "待回答", blocked: "Needs you", working: "Working", done: "Done", idle: "Idle" };
+const URGENCY = { question: 5, blocked: 4, done: 3, working: 2, idle: 1 };
 const SPACE_ROW_HEIGHT = 50;
+
+// Codex can keep working with an unanswered async question. Its OSC title is
+// separate from the core status; don't change the terminal's actual lifecycle.
+function needsAnswer(agent) {
+  if (agent?.app !== "codex" && agent?.program?.key !== "codex") return false;
+  const title = (agent.title ?? "").trim().replace(/^(?:\[\s*!\s*\]|⚠\uFE0F?|🔔|!)\s*/, "");
+  return /^Action Required(?:\s*[|:—–-]|\s*$)/i.test(title);
+}
 
 // Count displayed agents, carrying a live child's urgency into its parent's mark.
 // Build one snapshot per render; remote addresses remain machine-qualified.
 function agentCounts(list) {
   const bySpace = new Map(), children = new Map();
-  const shown = new Map(list.map(a => [a.address, a.status]));
+  const shown = new Map(list.map(a => [a.address, a]));
   for (const term of terminals()) {
     if (!term.parent || term.state !== "live") continue;
     const siblings = children.get(term.parent) ?? [];
@@ -25,11 +33,11 @@ function agentCounts(list) {
   }
   const normal = state => state === "error" ? "blocked" : STATES.includes(state) ? state : "idle";
   const stateOf = (address, state, seen = new Set()) => {
-    let result = normal(state);
+    let result = needsAnswer(shown.get(address)) ? "question" : normal(state);
     if (seen.has(address)) return result;
     seen.add(address);
     for (const child of children.get(address) ?? []) {
-      const raw = shown.get(child.address) ?? child.status;
+      const raw = shown.get(child.address)?.status ?? child.status;
       const next = stateOf(child.address, raw === "done" ? "idle" : raw, seen);
       if (URGENCY[next] > URGENCY[result]) result = next;
     }
@@ -137,6 +145,9 @@ const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b
 
 export default class Spaces extends View {
   init(_props, cx) {
+    this.questionSeen = new Set(JSON.parse(localStorage.getItem("codex.questions.seen") ?? "[]"));
+    this.questionTasks = new Map();
+    this.questionToasts = new Map();
     this.git = {}; // where() -> { name, branch, ahead, behind, repo, linked }, null: not a repo
     this.checked = {}; // where() -> when it was last looked at
     this.unsure = new Set(); // where()s git couldn't answer for (a machine away)
@@ -173,6 +184,49 @@ export default class Spaces extends View {
   }
 
   close() { this.closed = true; }
+
+  syncQuestions(list, cx) {
+    if (this.closed) return;
+    const byAddress = new Map(list.map(a => [a.address, a]));
+    const remote = new Map(machines().filter(m => m.name).map(m => [m.name, m.layout]));
+    const online = address => !address.includes("/") || remote.get(address.split("/")[0]) === "ready";
+    let changed = false;
+    for (const address of this.questionSeen) {
+      // Keep deduplication across a temporary disconnect/loading snapshot.
+      const machine = address.includes("/") ? address.split("/")[0] : null;
+      if (machine && remote.has(machine) && !online(address)) continue;
+      if (needsAnswer(byAddress.get(address))) continue;
+      this.questionSeen.delete(address);
+      this.questionTasks.delete(address);
+      const toast = this.questionToasts.get(address);
+      this.questionToasts.delete(address);
+      if (toast) cx.spawn(async () => { closeOverlay(toast); });
+      changed = true;
+    }
+    for (const agent of list) {
+      if (!online(agent.address) || !needsAnswer(agent) || this.questionSeen.has(agent.address)) continue;
+      this.questionSeen.add(agent.address);
+      changed = true;
+      const token = {};
+      this.questionTasks.set(agent.address, token);
+      // Post outside render; the token prevents a resolved/replaced question
+      // from producing a late toast. Repaints and title suffix changes don't alert.
+      cx.spawn(async () => {
+        if (this.closed || this.questionTasks.get(agent.address) !== token) return;
+        this.questionTasks.delete(agent.address);
+        const live = agents().find(a => a.address === agent.address);
+        if (!needsAnswer(live)) return;
+        const id = notify({
+          title: `${live.space_name || "Codex"} · 待回答`,
+          body: "点击前往，按 Shift+← 查看问题。",
+          level: "warning", timeout: 10000,
+          action: { name: "agent.focus", args: { terminal: agent.address } },
+        });
+        this.questionToasts.set(agent.address, id);
+      });
+    }
+    if (changed) localStorage.setItem("codex.questions.seen", JSON.stringify([...this.questionSeen]));
+  }
 
   refreshResources(cx) {
     if (this.closed) return;
@@ -504,9 +558,9 @@ export default class Spaces extends View {
     if (!states.length) return null;
     const mark = state => state === "working"
       ? svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)
-      : state === "blocked"
+      : state === "blocked" || state === "question"
         ? div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold()
-          .text_color(t.blocked).flex().items_center().justify_center().child("!")
+          .text_color(t.blocked).flex().items_center().justify_center().child(state === "question" ? "?" : "!")
         : div().size(7).flex_none().rounded_full()
           .when(state === "done", el => el.bg(t.done))
           .when(state === "idle", el => el.border(1.5).border_color(t.idle ?? t.dim));
@@ -520,7 +574,8 @@ export default class Spaces extends View {
       .children(states.map(state => h_flex().id(`space-agent-${w.id}-${state}`).flex_none().gap(3).items_center()
         // Keep agent icons in the same column for working, blocked, done and idle.
         .child(h_flex().size(14).flex_none().items_center().justify_center().child(mark(state)))
-        .child(div().text_size(11).text_color(state === "idle" ? t.dim : t[state]).child(String(counts[state])))));
+        .child(div().text_size(11).text_color(state === "question" ? t.blocked : state === "idle" ? t.dim : t[state])
+          .child(state === "question" ? `待回答${counts[state] > 1 ? " " + counts[state] : ""}` : String(counts[state])))));
   }
 
   row({ w, i, g, tree, kids = 0 }, t) {
@@ -604,11 +659,12 @@ export default class Spaces extends View {
       );
   }
 
-  render() {
+  render(cx) {
     const t = theme();
     const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
     const sp = spaces();
     const list = agents();
+    this.syncQuestions(list, cx);
     this.counts = agentCounts(list);
     this.programs = agentPrograms(list);
     const fetchFailed = [...this.fetchRepos().keys()].some(repo => this.fetchState[repo]?.error);

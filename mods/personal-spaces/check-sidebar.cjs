@@ -791,6 +791,21 @@ for (const width of [180, 200, 240, 268, 480]) {
 }
 
 for (const width of [180, 268, 480]) {
+  const f = fixture(width), sp = f.load("personal-spaces"), a = f.agents()[0];
+  for (const term of f.terminals()) if (term.parent) term.state = "exited";
+  Object.assign(a, { app: "codex", title: "[!] Action Required | Sample task", status: "working" });
+  let tree = sp.render(cx);
+  const badge = find(tree, "space-agent-s0-question");
+  assert.deepEqual(strings(badge), ["?", "待回答"], "pending question has a visible label, not just a spinner");
+  assert.equal(badge.items.at(-1).style.text_color, f.theme().blocked, "pending label is orange");
+  assert.equal(find(tree, "space-agent-s0-working"), null, "question takes priority over that agent's spinner");
+  a.title = "Sample task";
+  tree = sp.render(cx);
+  assert.equal(find(tree, "space-agent-s0-question"), null, "answer clears the pending badge");
+  assert.ok(find(tree, "space-agent-s0-working"), "the original running indicator returns");
+}
+
+for (const width of [180, 268, 480]) {
   const f = fixture(width), sp = f.load("personal-spaces");
   const programs = (space = "s0") => find(sp.render(cx), `space-agent-programs-${space}`);
   assert.equal(programs().style.accessibility_label, "Agents: Pi");
