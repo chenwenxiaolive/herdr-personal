@@ -576,8 +576,8 @@ export default class Spaces extends View {
       .children(states.map(state => h_flex().id(`space-agent-${w.id}-${state}`).flex_none().gap(3).items_center()
         // Keep agent icons in the same column for working, blocked, done and idle.
         .child(h_flex().size(14).flex_none().items_center().justify_center().child(mark(state)))
-        .child(div().text_size(11).text_color(state === "question" ? t.blocked : state === "idle" ? t.dim : t[state])
-          .child(state === "question" ? `待回答${counts[state] > 1 ? " " + counts[state] : ""}` : String(counts[state])))));
+        .when(state !== "question", el => el.child(div().text_size(11)
+          .text_color(state === "idle" ? t.dim : t[state]).child(String(counts[state]))))));
   }
 
   row({ w, i, g, tree, kids = 0 }, t) {

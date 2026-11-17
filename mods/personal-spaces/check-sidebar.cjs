@@ -796,12 +796,12 @@ for (const width of [180, 268, 480]) {
   Object.assign(a, { app: "codex", title: "[!] Action Required | Sample task", status: "working" });
   let tree = sp.render(cx);
   const badge = find(tree, "space-agent-s0-question");
-  assert.deepEqual(strings(badge), ["?", "待回答"], "pending question has a visible label, not just a spinner");
-  assert.equal(badge.items.at(-1).style.text_color, f.theme().blocked, "pending label is orange");
+  assert.deepEqual(strings(badge), ["?"], "pending question shows only the question mark");
+  assert.equal(badge.items[0].items[0].style.text_color, f.theme().blocked, "question mark is orange");
   assert.equal(find(tree, "space-agent-s0-working"), null, "question takes priority over that agent's spinner");
   a.title = "[ . ] Action Required | Sample task";
   tree = sp.render(cx);
-  assert.deepEqual(strings(find(tree, "space-agent-s0-question")), ["?", "待回答"], "the dim title animation frame keeps the same badge");
+  assert.deepEqual(strings(find(tree, "space-agent-s0-question")), ["?"], "the dim title animation frame keeps the same badge");
   assert.equal(find(tree, "space-agent-s0-working"), null, "title animation cannot restore the spinner");
   a.title = "Sample task";
   tree = sp.render(cx);
