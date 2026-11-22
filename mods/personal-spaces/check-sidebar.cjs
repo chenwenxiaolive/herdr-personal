@@ -101,6 +101,25 @@ function fixture(width) {
   return { ...env, load, slots, state, calls, overlays, stores, labelled, shown };
 }
 
+{
+  const f = fixture(268);
+  f.spaces().splice(0, 2);
+  f.spaces()[0].active = true;
+  f.shown.space = f.spaces()[0].id;
+  const sidebar = f.load("personal-spaces");
+  sidebar.machines = [{ name: "vps", state: "connected" }];
+  const tree = sidebar.render(cx);
+  for (const id of ["machine-add-local", "machine-new-local"]) {
+    fire(find(tree, id), "on_click", {}, cx);
+    assert.deepEqual(f.calls.pop(), ["space.new", { machine: "" }], id);
+  }
+  fire(find(tree, "machine-add-vps"), "on_click", {}, cx);
+  assert.deepEqual(f.calls.pop(), ["space.new", { machine: "vps" }]);
+  f.spaces().pop();
+  fire(find(sidebar.render(cx), "machine-new-vps"), "on_click", {}, cx);
+  assert.deepEqual(f.calls.pop(), ["space.new", { machine: "vps" }]);
+}
+
 for (const width of [180, 200, 240, 268, 480]) {
   const f = fixture(width);
   const sp = f.load("personal-spaces"), ag = f.load("personal-agents");
