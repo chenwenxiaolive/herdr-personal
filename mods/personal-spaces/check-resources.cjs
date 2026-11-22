@@ -16,6 +16,11 @@ const first = parse(sample(100, 100));
 assert.equal(first.ticks, 200, "guest counters are already included and must not be counted twice");
 assert.equal(first.memory, 50, "available memory, including reclaimable cache, is subtracted");
 assert.equal(first.used, 2048);
+assert.equal(first.disk, null, "CPU and RAM remain available when disk sampling fails");
+const disk = parse(sample(100, 100) + "DiskKiB: 52428800 81219584\n").disk;
+assert.equal(disk.used, 52428800);
+assert.equal(disk.total, 81219584);
+assert.equal(parse(sample(100, 100) + "DiskKiB: 500 400\n").disk, null);
 assert.equal(usage(null, first), null, "one sample cannot give an interval CPU utilization");
 assert.equal(usage(first, parse(sample(150, 150))), 50);
 assert.equal(usage(first, parse(sample(100, 200))), 0);
@@ -112,6 +117,7 @@ async function localPolling() {
   if (process.platform === "darwin") {
     const output = require("node:child_process").execFileSync("/usr/bin/python3", [path.join(__dirname, "resources-macos.py")], { encoding: "utf8", timeout: 5000 });
     const native = parse(output);
+    assert.ok(native.disk?.total > 0 && native.disk.used <= native.disk.total);
     assert.ok(native.total > 0 && native.used >= 0 && native.used <= native.total, "the real macOS sampler returns valid physical memory");
     assert.ok(native.ticks > 0 && native.idle >= 0 && native.idle <= native.ticks);
   }

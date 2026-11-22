@@ -105,23 +105,28 @@ function select(s) {
 const FALLBACK = 60000;
 const FETCH_INTERVAL = 5 * 60 * 1000;
 const RESOURCE_INTERVAL = 5000;
-// Three lines from Linux's system counters; no remote files or services to install.
+// Sample the Linux root filesystem alongside the CPU and memory counters.
 const RESOURCE_SCRIPT = [
   'IFS= read -r cpu < /proc/stat || exit 1',
   'printf "%s\\n" "$cpu"',
   'while IFS= read -r line; do case "$line" in MemTotal:*|MemAvailable:*) printf "%s\\n" "$line";; esac; done < /proc/meminfo',
+  `LC_ALL=C df -Pk / 2>/dev/null | awk 'NR == 2 {print "DiskKiB:", $3, $2}'`,
 ].join("\n");
 
 function parseResources(text) {
   const cpu = text.match(/^cpu\s+(.+)$/m)?.[1].trim().split(/\s+/).map(Number);
   const total = Number(text.match(/^MemTotal:\s+(\d+)\s+kB\s*$/m)?.[1]);
   const available = Number(text.match(/^MemAvailable:\s+(\d+)\s+kB\s*$/m)?.[1]);
+  const disk = text.match(/^DiskKiB: (\d+) (\d+)$/m);
+  const diskUsed = Number(disk?.[1]), diskTotal = Number(disk?.[2]);
   if (!cpu || cpu.length < 8 || !cpu.every(n => Number.isSafeInteger(n) && n >= 0)
       || !Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(available)
       || available < 0 || available > total) throw new Error("System counters unavailable");
   // guest/guest_nice are already included in user/nice; exclude them from the sum.
   return { ticks: cpu.slice(0, 8).reduce((a, b) => a + b, 0), idle: cpu[3] + cpu[4],
-    total, used: total - available, memory: 100 * (total - available) / total };
+    total, used: total - available, memory: 100 * (total - available) / total,
+    disk: Number.isSafeInteger(diskUsed) && Number.isSafeInteger(diskTotal) && diskTotal > 0 && diskUsed <= diskTotal
+      ? { used: diskUsed, total: diskTotal } : null };
 }
 
 function cpuPercent(previous, sample) {
@@ -273,13 +278,14 @@ export default class Spaces extends View {
     const stats = connected && latest && Date.now() - latest.at < RESOURCE_INTERVAL * 3 ? latest : null;
     const cpu = stats?.cpu == null ? "—" : `${Math.round(stats.cpu)}%`;
     const memory = stats ? `${Math.round(stats.memory)}%` : "—";
-    const amount = stats ? `${(stats.used / 1048576).toFixed(1)}/${(stats.total / 1048576).toFixed(1)} GiB` : "";
-    return h_flex().id(`machine-resources-${name ?? "local"}`).h(22).flex_none().pl(26).pr(8).gap(10).items_center()
+    const disk = stats?.disk;
+    const amount = disk ? `${Math.round(disk.used / 1048576)}/${Math.round(disk.total / 1048576)} GiB` : "—";
+    return h_flex().id(`machine-resources-${name ?? "local"}`).h(22).flex_none().pl(26).pr(8).gap(7).items_center()
       .text_size(10.5).text_color(t.dim)
-      .accessibility_label(`${name ?? "This computer"}: CPU ${cpu}, RAM ${memory}${amount ? `, ${amount}` : ""}`)
+      .accessibility_label(`${name ?? "This computer"}: CPU ${cpu}, RAM ${memory}, Disk ${amount}`)
       .child(div().flex_none().child(`CPU ${cpu}`))
       .child(div().flex_none().child(`RAM ${memory}`))
-      .child(div().flex_1().min_w(0).truncate().child(amount));
+      .child(div().flex_1().min_w(0).truncate().child(`Disk ${amount}`));
   }
 
   // Use the common Git directory plus machine, so linked worktrees fetch only once.

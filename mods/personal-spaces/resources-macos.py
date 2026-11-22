@@ -1,7 +1,8 @@
-"""Read macOS CPU counters and physical memory without third-party packages."""
+"""Read macOS CPU, physical memory and startup disk usage."""
 import ctypes
 import os
 import re
+import shutil
 import subprocess
 
 
@@ -34,6 +35,11 @@ def sample():
     print(f"cpu {cpu[0]} {cpu[3]} {cpu[1]} {cpu[2]} 0 0 0 0")
     print(f"MemTotal: {total} kB")
     print(f"MemAvailable: {total - used} kB")
+    try:
+        disk = shutil.disk_usage("/")
+    except OSError:
+        return
+    print(f"DiskKiB: {disk.used // 1024} {disk.total // 1024}")
 
 
 if __name__ == "__main__":
